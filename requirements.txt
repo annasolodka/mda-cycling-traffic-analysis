@@ -5,7 +5,10 @@ geopy
 pyarrow
 requests
 matplotlib
+geopandas
+contextily
 plotly
+nbformat
 scikit-learn
 statsmodels
 scipy
