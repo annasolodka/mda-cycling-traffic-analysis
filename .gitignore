@@ -223,7 +223,8 @@ __pycache__/
 
 data/raw/
 data/processed/
-data/external/
+data/external/*
+!data/external/Special_events.xlsx
 outputs/
 
 .env
