@@ -4,6 +4,7 @@ import matplotlib.pyplot as plt
 import plotly.express as px
 from pathlib import Path
 import seaborn as sns
+import numpy as np
 from shinywidgets import output_widget, render_widget
 import plotly.graph_objects as go
 
@@ -258,9 +259,18 @@ app_ui = ui.page_navbar(
                 ui.nav_panel("Panel 2: Top 25 Sites", 
                     ui.output_plot("dev_top_sites_plot")
                 ),
-                ui.nav_panel("Panel 3: Site Characterization", 
-                    output_widget("dev_site_char_plot")
-                )
+                ui.nav_panel("Panel 3: Site Characterization",
+                    ui.navset_card_tab(
+                        ui.nav_panel(
+                            "Direction Profile",
+                            output_widget("dev_direction_profile_map")
+                        ),
+                        ui.nav_panel(
+                            "Sensitivity",
+                            output_widget("dev_sensitivity_map")
+                        )
+                    )
+                ),
             )
         ),
         
@@ -808,6 +818,58 @@ def server(input, output, session):
         ] = "Lower than expected"
 
         return df
+    def summarize_deviations(data, group_variable):
+        baseline_share = data["is_deviation"].mean()
+
+        summary = (
+            data
+            .groupby(group_variable)
+            .agg(
+                observations=("is_deviation", "size"),
+                deviations=("is_deviation", "sum")
+            )
+            .reset_index()
+        )
+
+        summary["deviation_share"] = summary["deviations"] / summary["observations"]
+        summary["baseline_deviation_share"] = baseline_share
+
+        return summary
+
+    def summarize_directional_deviations(data, group_variable):
+        baseline_higher_share = (
+            data["deviation_direction"] == "Higher than expected"
+        ).mean()
+
+        baseline_lower_share = (
+            data["deviation_direction"] == "Lower than expected"
+        ).mean()
+
+        summary = (
+            data
+            .groupby(group_variable)
+            .agg(
+                observations=("is_deviation", "size"),
+                deviations=("is_deviation", "sum"),
+                higher_deviations=(
+                    "deviation_direction",
+                    lambda x: (x == "Higher than expected").sum()
+                ),
+                lower_deviations=(
+                    "deviation_direction",
+                    lambda x: (x == "Lower than expected").sum()
+                )
+            )
+            .reset_index()
+        )
+
+        summary["deviation_share"] = summary["deviations"] / summary["observations"]
+        summary["higher_deviation_share"] = summary["higher_deviations"] / summary["observations"]
+        summary["lower_deviation_share"] = summary["lower_deviations"] / summary["observations"]
+        summary["baseline_higher_deviation_share"] = baseline_higher_share
+        summary["baseline_lower_deviation_share"] = baseline_lower_share
+
+        return summary
     @render.ui
     def dev_value_boxes():
 
@@ -1079,51 +1141,75 @@ def server(input, output, session):
 
         df = deviation_data()
 
-        dev_df = df[df["is_deviation"] == 1]
-
-        site_summary = (
-            dev_df
-            .groupby("site_name")
+        site_deviation_summary = (
+            df
+            .groupby(["site_id", "site_name", "municipality", "latitude", "longitude"])
             .agg(
-                total_deviations=("is_deviation", "sum")
+                observations=("is_deviation", "size"),
+                deviations=("is_deviation", "sum"),
+                higher_deviations=(
+                    "deviation_direction",
+                    lambda x: (x == "Higher than expected").sum()
+                ),
+                lower_deviations=(
+                    "deviation_direction",
+                    lambda x: (x == "Lower than expected").sum()
+                ),
             )
             .reset_index()
-            .sort_values(
-                "total_deviations",
-                ascending=False
-            )
-            .head(25)
         )
 
-        # reverse order for cleaner horizontal plotting
-        site_summary = site_summary.iloc[::-1]
+        site_deviation_summary["deviation_share"] = (
+            site_deviation_summary["deviations"] /
+            site_deviation_summary["observations"]
+        )
 
-        fig, ax = plt.subplots(figsize=(11, 10), constrained_layout=True)
+        top_sites = (
+            site_deviation_summary
+            .sort_values("deviation_share", ascending=False)
+            .head(25)
+            .copy()
+        )
+
+        top_sites["site_label"] = (
+            top_sites["site_id"].astype(str)
+            + " - "
+            + top_sites["site_name"].astype(str)
+            + " ("
+            + top_sites["municipality"].astype(str)
+            + ")"
+        )
+
+        top_sites["rank"] = range(1, len(top_sites) + 1)
+
+        top_sites["bar_color"] = np.where(
+            top_sites["rank"] <= 5,
+            "#b2182b",
+            "#bdbdbd"
+        )
+
+        top_sites = top_sites.sort_values("deviation_share", ascending=True)
+
+        fig, ax = plt.subplots(figsize=(11, 9))
+
+        fig.patch.set_facecolor("#f2f2f2")
+        ax.set_facecolor("#f2f2f2")
 
         ax.barh(
-            site_summary["site_name"],
-            site_summary["total_deviations"],
-            color="#4C78A8"
+            top_sites["site_label"],
+            top_sites["deviation_share"],
+            color=top_sites["bar_color"],
         )
 
-        ax.set_title(
-            "Sites with the Highest Number of Traffic Deviations",
-            pad=20,
-            fontweight="bold",
-            fontsize=12
-        )
-
-        ax.set_xlabel("Number of Deviations")
+        ax.set_xlabel("Deviation share")
         ax.set_ylabel("Site")
+        ax.set_title("Top 25 sites by deviation share")
 
-        ax.spines["top"].set_visible(False)
-        ax.spines["right"].set_visible(False)
+        ax.xaxis.set_major_formatter(plt.FuncFormatter(lambda x, _: f"{x:.0%}"))
+        ax.grid(axis="x", color="white", linewidth=1.2)
+        ax.set_axisbelow(True)
 
-        ax.tick_params(axis='y', labelsize=8)
-
-        fig.subplots_adjust(top=0.92)
-        # fig.tight_layout()
-
+        plt.tight_layout()
         return fig
     
     @render_widget
@@ -1237,43 +1323,6 @@ def server(input, output, session):
         return fig
     
     @render_widget
-    def dev_site_char_plot():
-
-        df = deviation_data()
-        dev_df = df[df["is_deviation"] == 1].copy()
-
-        char_summary = (
-            dev_df
-            .groupby("municipality")
-            .size()
-            .reset_index(name="n")
-            .dropna()
-            .sort_values("n", ascending=False)
-            .head(15)
-        )
-
-        fig = px.pie(
-            char_summary,
-            names="municipality",
-            values="n",
-            hole=0.45,
-            title="Top Municipalities by Number of Deviations"
-        )
-
-        fig.update_traces(
-            textposition="inside",
-            textinfo="percent"
-        )
-
-        fig.update_layout(
-            template="plotly_white",
-            height=650,
-            margin=dict(l=40, r=40, t=80, b=40)
-        )
-
-        return fig
-    
-    @render_widget
     def dev_spatial_map_plot():
 
         df = deviation_data()
@@ -1360,6 +1409,352 @@ def server(input, output, session):
             margin=dict(l=20, r=20, t=70, b=20),
             coloraxis_colorbar=dict(
                     title="Deviation Share (%)"),
+        )
+
+        return fig
+    @reactive.Calc
+    def site_characterisation_data():
+        df = deviation_data().copy()
+
+        site_characterisation = (
+            df.groupby(["site_id", "site_name", "municipality", "latitude", "longitude"])
+            .agg(
+                observations=("is_deviation", "size"),
+                deviations=("is_deviation", "sum"),
+                higher_deviations=("deviation_direction", lambda x: (x == "Higher than expected").sum()),
+                lower_deviations=("deviation_direction", lambda x: (x == "Lower than expected").sum()),
+            )
+            .reset_index()
+        )
+
+        site_characterisation["deviation_share"] = site_characterisation["deviations"] / site_characterisation["observations"]
+        site_characterisation["higher_deviation_share"] = site_characterisation["higher_deviations"] / site_characterisation["observations"]
+        site_characterisation["lower_deviation_share"] = site_characterisation["lower_deviations"] / site_characterisation["observations"]
+
+        site_characterisation["direction_profile"] = "Low deviation frequency"
+        high = site_characterisation["deviation_share"] >= 0.10
+
+        site_characterisation.loc[
+            high & (site_characterisation["higher_deviation_share"] > 1.5 * site_characterisation["lower_deviation_share"]),
+            "direction_profile"
+        ] = "Mostly higher counts than expected"
+
+        site_characterisation.loc[
+            high & (site_characterisation["lower_deviation_share"] > 1.5 * site_characterisation["higher_deviation_share"]),
+            "direction_profile"
+        ] = "Mostly lower counts than expected"
+
+        site_characterisation.loc[
+            high
+            & (site_characterisation["higher_deviation_share"] <= 1.5 * site_characterisation["lower_deviation_share"])
+            & (site_characterisation["lower_deviation_share"] <= 1.5 * site_characterisation["higher_deviation_share"]),
+            "direction_profile"
+        ] = "Mixed direction of deviations"
+
+        df["is_cultural_event"] = ((df["is_outdoor_music"] == 1) | (df["is_indoor_music"] == 1)).astype(int)
+
+        df["meaningful_precipitation"] = df["precipitation_category"].isin([
+            "moderate_precipitation",
+            "heavy_precipitation",
+            "snow",
+        ]).astype(int)
+
+        cold_threshold = df["temperature_mean"].quantile(0.05)
+        warm_threshold = df["temperature_mean"].quantile(0.95)
+
+        df["cold_weather"] = (df["temperature_mean"] <= cold_threshold).astype(int)
+        df["warm_weather"] = (df["temperature_mean"] >= warm_threshold).astype(int)
+
+        df["normal_external_conditions"] = (
+            (df["is_strike"] == 0)
+            & (df["is_cultural_event"] == 0)
+            & (df["is_sport_event"] == 0)
+            & (df["meaningful_precipitation"] == 0)
+            & (df["cold_weather"] == 0)
+            & (df["warm_weather"] == 0)
+        ).astype(int)
+
+        normal_site_summary = (
+            df[df["normal_external_conditions"] == 1]
+            .groupby("site_id")
+            .agg(
+                normal_observations=("is_deviation", "size"),
+                normal_deviations=("is_deviation", "sum"),
+            )
+            .reset_index()
+        )
+
+        normal_site_summary["normal_deviation_share"] = (
+            normal_site_summary["normal_deviations"] / normal_site_summary["normal_observations"]
+        )
+
+        site_characterisation = site_characterisation.merge(
+            normal_site_summary,
+            on="site_id",
+            how="left"
+        )
+
+        site_characterisation["normal_deviation_share"] = site_characterisation["normal_deviation_share"].fillna(0)
+
+        factor_columns = [
+            "meaningful_precipitation",
+            "cold_weather",
+            "warm_weather",
+            "is_strike",
+            "is_cultural_event",
+            "is_sport_event",
+        ]
+
+        factor_labels = {
+            "meaningful_precipitation": "Precipitation",
+            "cold_weather": "Cold weather",
+            "warm_weather": "Warm weather",
+            "is_strike": "Transport strike",
+            "is_cultural_event": "Cultural event",
+            "is_sport_event": "Sport event",
+        }
+
+        factor_summary_list = []
+
+        for factor_column in factor_columns:
+            temp = (
+                df[df[factor_column] == 1]
+                .groupby("site_id")
+                .agg(
+                    factor_observations=("is_deviation", "size"),
+                    factor_deviations=("is_deviation", "sum"),
+                )
+                .reset_index()
+            )
+
+            temp["factor"] = factor_column
+            temp["factor_label"] = factor_labels[factor_column]
+            temp["factor_deviation_share"] = temp["factor_deviations"] / temp["factor_observations"]
+
+            factor_summary_list.append(temp)
+
+        site_factor_sensitivity = pd.concat(factor_summary_list, ignore_index=True)
+
+        site_factor_sensitivity = site_factor_sensitivity.merge(
+            site_characterisation[
+                ["site_id", "site_name", "municipality", "deviation_share", "normal_deviation_share"]
+            ],
+            on="site_id",
+            how="left"
+        )
+
+        site_factor_sensitivity["lift_from_normal"] = (
+            site_factor_sensitivity["factor_deviation_share"]
+            - site_factor_sensitivity["normal_deviation_share"]
+        )
+
+        site_factor_sensitivity["is_sensitive"] = (
+            (site_factor_sensitivity["deviation_share"] >= 0.10)
+            & (site_factor_sensitivity["lift_from_normal"] >= 0.05)
+        ).astype(int)
+
+        sensitive_only = site_factor_sensitivity[site_factor_sensitivity["is_sensitive"] == 1].copy()
+
+        number_of_sensitivities = (
+            sensitive_only.groupby("site_id")
+            .size()
+            .reset_index(name="number_of_sensitivities")
+        )
+
+        sensitive_factor_list = (
+            sensitive_only
+            .sort_values(["site_id", "lift_from_normal"], ascending=[True, False])
+            .groupby("site_id")["factor_label"]
+            .apply(lambda x: ", ".join(x))
+            .reset_index(name="sensitive_factors")
+        )
+
+        main_sensitivity_factor = (
+            sensitive_only
+            .sort_values(["site_id", "lift_from_normal"], ascending=[True, False])
+            .groupby("site_id")
+            .first()
+            .reset_index()[["site_id", "factor_label", "lift_from_normal"]]
+            .rename(columns={
+                "factor_label": "main_sensitivity_factor",
+                "lift_from_normal": "main_sensitivity_lift",
+            })
+        )
+
+        site_sensitivity_summary = (
+            number_of_sensitivities
+            .merge(sensitive_factor_list, on="site_id", how="left")
+            .merge(main_sensitivity_factor, on="site_id", how="left")
+        )
+
+        site_characterisation = site_characterisation.merge(
+            site_sensitivity_summary,
+            on="site_id",
+            how="left"
+        )
+
+        site_characterisation["number_of_sensitivities"] = site_characterisation["number_of_sensitivities"].fillna(0).astype(int)
+        site_characterisation["sensitive_factors"] = site_characterisation["sensitive_factors"].fillna("No sensitivities identified")
+        site_characterisation["main_sensitivity_factor"] = site_characterisation["main_sensitivity_factor"].fillna("No main sensitivity factor")
+        site_characterisation["main_sensitivity_lift"] = site_characterisation["main_sensitivity_lift"].fillna(0)
+
+        site_characterisation["site_category"] = "Stable"
+
+        site_characterisation.loc[
+            (site_characterisation["deviation_share"] >= 0.10)
+            & (site_characterisation["number_of_sensitivities"] == 0),
+            "site_category"
+        ] = "Unstable independent of factors"
+
+        site_characterisation.loc[
+            (site_characterisation["deviation_share"] >= 0.10)
+            & (site_characterisation["number_of_sensitivities"] == 1),
+            "site_category"
+        ] = "Single-factor-sensitive"
+
+        site_characterisation.loc[
+            (site_characterisation["deviation_share"] >= 0.10)
+            & (site_characterisation["number_of_sensitivities"] >= 2),
+            "site_category"
+        ] = "Multiple-factor-sensitive"
+
+        site_characterisation["site_label"] = (
+            site_characterisation["site_id"].astype(str)
+            + " - "
+            + site_characterisation["site_name"].astype(str)
+            + " ("
+            + site_characterisation["municipality"].astype(str)
+            + ")"
+        )
+
+        site_characterisation["deviation_share_for_size"] = site_characterisation["deviation_share"] * 100
+
+        return site_characterisation
+    
+    @render_widget
+    def dev_direction_profile_map():
+        site_map = site_characterisation_data().dropna(subset=["latitude", "longitude"])
+
+        direction_colors = {
+            "Low deviation frequency": "#9e9e9e",
+            "Mostly higher counts than expected": "#b2182b",
+            "Mostly lower counts than expected": "#fdae61",
+            "Mixed direction of deviations": "#7b3294",
+        }
+
+        fig = px.scatter_mapbox(
+            site_map,
+            lat="latitude",
+            lon="longitude",
+            color="direction_profile",
+            size="deviation_share_for_size",
+            color_discrete_map=direction_colors,
+            size_max=24,
+            zoom=7,
+            height=700,
+            hover_name="site_label",
+            hover_data={
+                "site_id": True,
+                "municipality": True,
+                "deviation_share": ":.1%",
+                "higher_deviation_share": ":.1%",
+                "lower_deviation_share": ":.1%",
+                "direction_profile": True,
+                "deviation_share_for_size": False,
+                "latitude": False,
+                "longitude": False,
+            },
+            title="Direction profile of deviations by counting site",
+        )
+
+        fig.update_layout(
+            mapbox_style="carto-positron",
+            paper_bgcolor="#f2f2f2",
+            plot_bgcolor="#f2f2f2",
+            font=dict(color="#333333"),
+            title=dict(x=0.02),
+            legend_title_text="Direction profile",
+            margin={"r": 0, "t": 55, "l": 0, "b": 0},
+        )
+
+        return fig
+    
+    @render_widget
+    def dev_sensitivity_map():
+        site_map = site_characterisation_data().dropna(subset=["latitude", "longitude"])
+
+        site_map["sensitivity_map_group"] = site_map["site_category"]
+
+        site_map.loc[
+            site_map["site_category"] == "Single-factor-sensitive",
+            "sensitivity_map_group"
+        ] = site_map["main_sensitivity_factor"]
+
+        site_map.loc[
+            site_map["site_category"] == "Multiple-factor-sensitive",
+            "sensitivity_map_group"
+        ] = "Multiple factors"
+
+        sensitivity_colors = {
+            "Stable": "#9e9e9e",
+            "Unstable independent of factors": "#b2182b",
+            "Warm weather": "#ef8a62",
+            "Cold weather": "#67a9cf",
+            "Precipitation": "#9ab5d0",
+            "Transport strike": "#fdae61",
+            "Cultural event": "#2166ac",
+            "Sport event": "#d36c95",
+            "Multiple factors": "#6a3d9a",
+        }
+
+        sensitivity_order = [
+            "Stable",
+            "Unstable independent of factors",
+            "Precipitation",
+            "Cold weather",
+            "Warm weather",
+            "Transport strike",
+            "Cultural event",
+            "Sport event",
+            "Multiple factors",
+        ]
+
+        fig = px.scatter_mapbox(
+            site_map,
+            lat="latitude",
+            lon="longitude",
+            color="sensitivity_map_group",
+            size="deviation_share_for_size",
+            color_discrete_map=sensitivity_colors,
+            category_orders={"sensitivity_map_group": sensitivity_order},
+            size_max=24,
+            zoom=7,
+            height=700,
+            hover_name="site_label",
+            hover_data={
+                "site_id": True,
+                "municipality": True,
+                "deviation_share": ":.1%",
+                "normal_deviation_share": ":.1%",
+                "site_category": True,
+                "main_sensitivity_factor": True,
+                "sensitive_factors": True,
+                "direction_profile": True,
+                "deviation_share_for_size": False,
+                "latitude": False,
+                "longitude": False,
+            },
+            title="Site sensitivity to external factors",
+        )
+
+        fig.update_layout(
+            mapbox_style="carto-positron",
+            paper_bgcolor="#f2f2f2",
+            plot_bgcolor="#f2f2f2",
+            font=dict(color="#333333"),
+            title=dict(x=0.02),
+            legend_title_text="Sensitivity type",
+            margin={"r": 0, "t": 55, "l": 0, "b": 0},
         )
 
         return fig
