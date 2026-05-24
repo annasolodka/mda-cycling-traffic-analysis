@@ -711,19 +711,6 @@ def server(input, output, session):
         return fig
     
     # Deviations - Section 1
-def server(input, output, session):
-
-    # EDA - Section 1
-    @reactive.Calc
-    def selected_eda_data():
-        ...
-
-    # EDA - Section 5
-    @render_widget
-    def events_impact_plot():
-        ...
-
-    # Deviations - Section 1
     @reactive.Calc
     def deviation_data():
 
