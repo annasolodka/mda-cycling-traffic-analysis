@@ -8,25 +8,15 @@ from shinywidgets import output_widget, render_widget
 import plotly.graph_objects as go
 
 # Load data
-base_path = Path("E:/Data Storage/MDA/mda-cycling-traffic-analysis")
+# Load data using the relative path (so it works on the cloud!)
+base_path = Path(__file__).parent.parent
 processed_folder = base_path / "data" / "processed"
-model_development_data = pd.read_csv(processed_folder / "counts_model_final.csv", low_memory=False)
-prediction_data = pd.read_csv(
-    processed_folder / "prediction_data_with_factors.csv",
-    dtype={
-        'outdoor_music_event_type': str,
-        'indoor_music_event_type': str,
-        'sport_event_type': str
-    }
-)
-expected_counts = pd.read_csv(
-    processed_folder / "prediction_data_with_factors.csv",
-    dtype={
-        'outdoor_music_event_type': str,
-        'indoor_music_event_type': str,
-        'sport_event_type': str
-    }
-)
+
+model_development_data = pd.read_parquet(processed_folder / "model_development_data.parquet")
+prediction_data = pd.read_parquet(processed_folder / "expected_counts.parquet")
+
+# Load your expected datasets here or you can also use same parquet file. (Because the csv is too large for shinyapps.io)
+
 # 1. UI DEFINITION
 app_ui = ui.page_navbar(
     # EDA SITE
