@@ -173,13 +173,27 @@ app_ui = ui.page_navbar(
     ),
     
     # DEVIATIONS SITE
-    ui.nav_panel("Deviations Detecting",
+    ui.nav_panel("Deviation Analaysis",
         ui.h3("Section 1: Deviations Overview and Sizing"),
         ui.layout_sidebar(
             ui.sidebar(
                 ui.markdown("""
-                    ### Overview
-                    """)
+                    This section provides an overview of detected traffic deviations.
+
+                    A deviation represents a mismatch between:
+                    * **Observed cyclist traffic**
+                    * **Model-expected cyclist traffic**
+
+                    Deviations are identified only when:
+                    * the historical reference group has enough observations
+                    * the absolute difference is sufficiently large
+                    * the relative difference exceeds the predefined threshold
+
+                    **What to explore:**
+                    * Overall frequency of deviations
+                    * Balance between higher- and lower-than-expected traffic
+                    * Distribution of deviation magnitudes
+                """)
             ),
             ui.navset_card_tab(
                 ui.nav_panel("Panel 1: Summary Metrics",                     ui.output_ui("dev_value_boxes")
@@ -197,8 +211,13 @@ app_ui = ui.page_navbar(
         ui.layout_sidebar(
             ui.sidebar(
                 ui.markdown("""
-                    ### Temporal Rhythms
-                    """)
+                    This section explores when deviations occur most frequently. It identifies recurring temporal disruption patterns such as rush-hour anomalies or weekend irregularities.
+
+                    The heatmap highlights concentrations of abnormal traffic activity
+                    across:
+                    * days of the week
+                    * hours of the day
+                """)
             ),
             ui.card(
                 ui.output_plot("dev_temporal_heatmap_plot")
@@ -211,8 +230,15 @@ app_ui = ui.page_navbar(
         ui.layout_sidebar(
             ui.sidebar(
                 ui.markdown("""
-                    ### Spatial Distribution
-                    """)
+                    This section investigates where deviations occur across Flanders.
+
+                    **What to explore:**
+                    * Geographic clustering of deviations
+                    * Sites with the highest abnormal activity
+                    * Municipalities contributing most strongly to deviation frequency
+
+                    Larger and darker markers indicate locations with higher deviation intensity.
+                """)
             ),
             ui.navset_card_tab(
                 ui.nav_panel("Panel 1: Spatial Maps", 
@@ -244,8 +270,16 @@ app_ui = ui.page_navbar(
         ui.layout_sidebar(
             ui.sidebar(
                 ui.markdown("""
-                    ### Weather Influence
-                    """)
+                    This section evaluates whether weather conditions are associated
+                    with abnormal cycling behavior.
+
+                    The analysis compares:
+                    * the share of higher-than-expected traffic deviations
+                    * the share of lower-than-expected traffic deviations
+                    * the total number of detected deviations
+
+                    This helps identify weather conditions linked to unusual traffic patterns.
+                """)
             ),
 
             ui.card(
@@ -271,8 +305,14 @@ app_ui = ui.page_navbar(
         ui.layout_sidebar(
             ui.sidebar(
                 ui.markdown("""
-                    ### Event Impact
-                    """)
+                    This section measures how holidays, strikes, and public events
+                    influence deviation frequency.
+
+                    Relative impacts are calculated against baseline periods without
+                    special events.
+
+                    Positive values indicate an increased likelihood of abnormal traffic behavior.
+                """)
             ),
             ui.card(
                 output_widget("dev_special_events_plot")
@@ -709,7 +749,9 @@ def server(input, output, session):
         )
         
         return fig
-    
+
+    ###################################################################################
+
     # Deviations - Section 1
     @reactive.Calc
     def deviation_data():
@@ -785,22 +827,22 @@ def server(input, output, session):
 
         return ui.layout_column_wrap(
             ui.value_box(
-                "Total observations",
+                "Total Traffic Records",
                 f"{total_obs:,}"
             ),
 
             ui.value_box(
-                "Total deviations",
+                "Detected Deviations",
                 f"{total_dev:,}"
             ),
 
             ui.value_box(
-                "Higher than expected",
+                "Higher-than-Expected",
                 f"{higher:,}"
             ),
 
             ui.value_box(
-                "Lower than expected",
+                "Lower-than-Expected",
                 f"{lower:,}"
             ),
 
@@ -832,12 +874,12 @@ def server(input, output, session):
         )
 
         ax.set_title(
-            "Distribution of Deviation Size",
+            "Distribution of Observed vs. Expected Differences",
             pad=15
         )
 
         ax.set_xlabel(
-            "Observed - Expected Count"
+            "Observed minus Expected Cyclist Count"
         )
 
         ax.set_ylabel("Frequency")
@@ -992,7 +1034,7 @@ def server(input, output, session):
 
         ax1.set_xlabel(x_label)
         ax1.set_ylabel(
-            "Deviation Rate (%)",
+            "Share of Deviations (%)",
             fontweight="bold"
         )
 
@@ -1009,13 +1051,13 @@ def server(input, output, session):
         )
 
         ax2.set_ylabel(
-            "Number of Deviations",
+            "Detected Deviations",
             color="dimgray",
             fontweight="bold"
         )
 
         ax1.set_title(
-            f"Deviation Rate by {title_prefix}",
+            f"Weather Conditions Associated with Traffic Deviations ({title_prefix})",
             pad=15,
             fontweight="bold"
         )
@@ -1056,7 +1098,7 @@ def server(input, output, session):
         # reverse order for cleaner horizontal plotting
         site_summary = site_summary.iloc[::-1]
 
-        fig, ax = plt.subplots(figsize=(11, 20), constrained_layout=True)
+        fig, ax = plt.subplots(figsize=(11, 10), constrained_layout=True)
 
         ax.barh(
             site_summary["site_name"],
@@ -1065,7 +1107,7 @@ def server(input, output, session):
         )
 
         ax.set_title(
-            "Top 25 Sites by Number of Deviations",
+            "Sites with the Highest Number of Traffic Deviations",
             pad=20,
             fontweight="bold",
             fontsize=12
@@ -1077,7 +1119,7 @@ def server(input, output, session):
         ax.spines["top"].set_visible(False)
         ax.spines["right"].set_visible(False)
 
-        ax.tick_params(axis='y', labelsize=9)
+        ax.tick_params(axis='y', labelsize=8)
 
         fig.subplots_adjust(top=0.92)
         # fig.tight_layout()
@@ -1179,7 +1221,7 @@ def server(input, output, session):
         )
 
         fig.update_layout(
-            title="Deviation Impact of Special Events",
+            title="Impact of Special Events on Traffic Deviations",
             template="plotly_white",
             height=500,
             margin=dict(
@@ -1315,7 +1357,9 @@ def server(input, output, session):
         fig.update_layout(
             mapbox_style="open-street-map",
             template="plotly_white",
-            margin=dict(l=20, r=20, t=70, b=20)
+            margin=dict(l=20, r=20, t=70, b=20),
+            coloraxis_colorbar=dict(
+                    title="Deviation Share (%)"),
         )
 
         return fig
