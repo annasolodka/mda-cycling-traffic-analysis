@@ -66,6 +66,7 @@ notebooks/  -> end-to-end analytical workflow
 
 ## Running the Dashboard
 Link: https://nerissatruong2510.shinyapps.io/cycling-dashboard/
+
 Install the project dependencies and launch the dashboard from the project root:
 
 ```bash
