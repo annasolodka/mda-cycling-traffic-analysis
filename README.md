@@ -65,7 +65,7 @@ notebooks/  -> end-to-end analytical workflow
   Compares observed and expected cyclist counts and identifies unusually high or low traffic intervals using deviation thresholds.
 
 ## Running the Dashboard
-
+Link: https://nerissatruong2510.shinyapps.io/cycling-dashboard/
 Install the project dependencies and launch the dashboard from the project root:
 
 ```bash
