@@ -174,7 +174,7 @@ app_ui = ui.page_navbar(
     ),
     
     # DEVIATIONS SITE
-    ui.nav_panel("Deviation Analaysis",
+    ui.nav_panel("Deviation Analysis",
         ui.h3("Section 1: Deviations Overview and Sizing"),
         ui.layout_sidebar(
             ui.sidebar(
@@ -220,9 +220,35 @@ app_ui = ui.page_navbar(
                     * hours of the day
                 """)
             ),
-            ui.card(
+            ui.navset_card_tab(
+            ui.nav_panel(
+                "Panel 1: Time Scale",
+
+                ui.input_select(
+                    "dev_time_scale",
+                    "Select time scale:",
+                    {
+                        "month": "Month",
+                        "weekday": "Weekday",
+                        "hour_bin": "Hour bin"
+                    },
+                    selected="month",
+                    width="300px"
+                ),
+
+                ui.output_plot("dev_time_scale_plot")
+            ),
+
+            ui.nav_panel(
+                "Panel 2: Hour × Weekday",
                 ui.output_plot("dev_temporal_heatmap_plot")
+            ),
+
+            ui.nav_panel(
+                "Panel 3: Month × Weekday",
+                ui.output_plot("dev_month_weekday_heatmap_plot")
             )
+        )
         ),
         
         ui.hr(),
@@ -242,7 +268,8 @@ app_ui = ui.page_navbar(
                 """)
             ),
             ui.navset_card_tab(
-                ui.nav_panel("Panel 1: Spatial Maps", 
+                ui.nav_panel(
+                    "Panel 1: Spatial Maps",
                     ui.input_select(
                         "dev_map_metric",
                         "Select map metric:",
@@ -253,27 +280,32 @@ app_ui = ui.page_navbar(
                         },
                         width="300px"
                     ),
-
                     output_widget("dev_spatial_map_plot")
                 ),
-                ui.nav_panel("Panel 2: Top 25 Sites", 
+                ui.nav_panel(
+                    "Panel 2: Top 25 Sites",
                     ui.output_plot("dev_top_sites_plot")
                 ),
-                ui.nav_panel("Panel 3: Site Characterization",
-                    ui.navset_card_tab(
-                        ui.nav_panel(
-                            "Direction Profile",
-                            output_widget("dev_direction_profile_map")
+                ui.nav_panel(
+                    "Panel 3: Site Characterization",
+                    ui.card(
+                        ui.input_select(
+                            "map_view",
+                            "Map view:",
+                            {
+                                "direction_profile": "Direction profile",
+                                "site_category": "Site category",
+                                "main_sensitivity_factor": "Main sensitivity factor",
+                            },
+                            selected="direction_profile",
+                            width="300px"
                         ),
-                        ui.nav_panel(
-                            "Sensitivity",
-                            output_widget("dev_sensitivity_map")
-                        )
+                        output_widget("dev_direction_profile_map")
                     )
-                ),
+                )
             )
         ),
-        
+
         ui.hr(),
         
         ui.h3("Section 4: Weather Impact"),
@@ -875,184 +907,416 @@ def server(input, output, session):
 
         df = deviation_data()
 
-        total_obs = len(df)
+        total_observations = len(df)
 
-        total_dev = (df["is_deviation"] == 1).sum()
-
-        higher = (
-            df["deviation_direction"] == "Higher than expected"
+        total_deviations = (
+            df["is_deviation"] == 1
         ).sum()
 
-        lower = (
-            df["deviation_direction"] == "Lower than expected"
-        ).sum()
+        deviation_share = (
+            total_deviations / total_observations
+        )
+
+        higher_share = (
+            df["deviation_direction"]
+            == "Higher than expected"
+        ).mean()
+
+        lower_share = (
+            df["deviation_direction"]
+            == "Lower than expected"
+        ).mean()
 
         return ui.layout_column_wrap(
+
             ui.value_box(
-                "Total Traffic Records",
-                f"{total_obs:,}"
+                "Total observations",
+                f"{total_observations:,}"
             ),
 
             ui.value_box(
-                "Detected Deviations",
-                f"{total_dev:,}"
+                "Detected deviations",
+                f"{total_deviations:,}"
             ),
 
             ui.value_box(
-                "Higher-than-Expected",
-                f"{higher:,}"
+                "Deviation share",
+                f"{deviation_share:.1%}"
             ),
 
             ui.value_box(
-                "Lower-than-Expected",
-                f"{lower:,}"
+                "Higher-than-expected share",
+                f"{higher_share:.1%}"
             ),
 
-            width=1/4
+            ui.value_box(
+                "Lower-than-expected share",
+                f"{lower_share:.1%}"
+            ),
+
+            width=1/5
         )
     @render.plot
     def dev_size_distribution_plot():
 
         df = deviation_data()
 
-        dev_df = df[df["is_deviation"] == 1]
+        deviation_rows = df["is_deviation"] == 1
 
-        lower = dev_df["difference"].quantile(0.01)
-        upper = dev_df["difference"].quantile(0.99)
-
-        plot_df = dev_df[
-            (dev_df["difference"] >= lower) &
-            (dev_df["difference"] <= upper)
+        deviation_differences = df.loc[
+            deviation_rows,
+            "difference"
         ]
 
-        fig, ax = plt.subplots(figsize=(9, 5))
+        lower_limit = deviation_differences.quantile(0.01)
+        upper_limit = deviation_differences.quantile(0.99)
 
-        sns.histplot(
-            plot_df["difference"],
-            bins=40,
-            color="#F58518",
-            edgecolor="white",
-            ax=ax
+        deviation_differences_capped = deviation_differences[
+            (deviation_differences >= lower_limit) &
+            (deviation_differences <= upper_limit)
+        ]
+
+        fig, ax = plt.subplots(figsize=(8, 5))
+
+        ax.hist(
+            deviation_differences_capped,
+            bins=80,
+            color="firebrick",
+            edgecolor="darkred",
+            alpha=0.90
         )
 
-        ax.set_title(
-            "Distribution of Observed vs. Expected Differences",
-            pad=15
+        ax.axvline(
+            0,
+            color="black",
+            linestyle="--",
+            linewidth=1
         )
 
-        ax.set_xlabel(
-            "Observed minus Expected Cyclist Count"
-        )
+        ax.set_xlabel("Observed count minus expected count")
+        ax.set_ylabel("Number of deviations")
+        ax.set_title("Distribution of deviation size, restricted to 1st and 99th percentiles")
 
-        ax.set_ylabel("Frequency")
+        plt.tight_layout()
 
-        ax.spines["top"].set_visible(False)
-        ax.spines["right"].set_visible(False)
-
-        fig.tight_layout()
         return fig
-    
+
+    @render.plot
+    def dev_time_scale_plot():
+
+        df = deviation_data()
+
+        time_scale = input.dev_time_scale()
+
+        labels = {
+            "month": "Month",
+            "weekday": "Weekday",
+            "hour_bin": "Hour bin"
+        }
+
+        weekday_order = [
+            "Monday", "Tuesday", "Wednesday", "Thursday",
+            "Friday", "Saturday", "Sunday"
+        ]
+
+        summary = (
+            df
+            .groupby(time_scale)
+            .agg(
+                observations=("is_deviation", "size"),
+                deviations=("is_deviation", "sum")
+            )
+            .reset_index()
+        )
+
+        summary["deviation_share"] = summary["deviations"] / summary["observations"]
+
+        if time_scale == "weekday":
+            summary[time_scale] = pd.Categorical(
+                summary[time_scale],
+                categories=weekday_order,
+                ordered=True
+            )
+
+        summary = summary.sort_values(time_scale)
+
+        fig, ax = plt.subplots(figsize=(8, 5))
+
+        ax.bar(
+            summary[time_scale].astype(str),
+            summary["deviation_share"],
+            color="firebrick",
+            alpha=0.90
+        )
+
+        ax.set_xlabel(labels[time_scale])
+        ax.set_ylabel("Deviation share")
+        ax.set_title(f"Deviation share by {labels[time_scale].lower()}")
+
+        ax.yaxis.set_major_formatter(
+            plt.FuncFormatter(lambda x, _: f"{x:.0%}")
+        )
+
+        if time_scale in ["weekday", "hour_bin"]:
+            ax.tick_params(axis="x", rotation=45)
+
+        plt.tight_layout()
+
+        return fig
+
     @render.plot
     def dev_temporal_heatmap_plot():
 
         df = deviation_data()
 
-        dev_df = df[df["is_deviation"] == 1]
-
-        heatmap_data = (
-            dev_df
+        summary = (
+            df
             .groupby(["weekday", "hour_bin"])
-            .size()
-            .unstack(fill_value=0)
+            .agg(
+                observations=("is_deviation", "size"),
+                deviations=("is_deviation", "sum")
+            )
+            .reset_index()
         )
 
-        heatmap_data = heatmap_data.reindex(
-            index=[
-                "Monday",
-                "Tuesday",
-                "Wednesday",
-                "Thursday",
-                "Friday",
-                "Saturday",
-                "Sunday"
-            ]
+        summary["deviation_share"] = (
+            summary["deviations"] / summary["observations"]
         )
 
-        heatmap_data = heatmap_data.reindex(
-            columns=sorted(heatmap_data.columns)
+        heatmap_data = summary.pivot(
+            index="weekday",
+            columns="hour_bin",
+            values="deviation_share"
         )
+
+        weekday_order = [
+            "Monday",
+            "Tuesday",
+            "Wednesday",
+            "Thursday",
+            "Friday",
+            "Saturday",
+            "Sunday"
+        ]
+
+        heatmap_data = heatmap_data.reindex(weekday_order)
 
         fig, ax = plt.subplots(figsize=(10, 5))
 
-        sns.heatmap(
+        fig.patch.set_facecolor("#f2f2f2")
+        ax.set_facecolor("#f2f2f2")
+
+        im = ax.imshow(
             heatmap_data,
-            cmap="Reds",
-            cbar_kws={"label": "Deviation Count"},
-            ax=ax
+            aspect="auto",
+            cmap="YlOrRd"
         )
 
+        cbar = plt.colorbar(im, ax=ax)
+        cbar.set_label("Deviation share")
+
+        ax.set_xticks(range(len(heatmap_data.columns)))
+        ax.set_xticklabels(heatmap_data.columns)
+
+        ax.set_yticks(range(len(heatmap_data.index)))
+        ax.set_yticklabels(heatmap_data.index)
+
+        ax.set_xticks(
+            np.arange(-0.5, len(heatmap_data.columns), 1),
+            minor=True
+        )
+
+        ax.set_yticks(
+            np.arange(-0.5, len(heatmap_data.index), 1),
+            minor=True
+        )
+
+        ax.grid(
+            which="minor",
+            color="white",
+            linestyle="-",
+            linewidth=1.2
+        )
+
+        ax.tick_params(which="minor", bottom=False, left=False)
+
+        ax.set_xlabel("Start of 2-hour interval")
+        ax.set_ylabel("Weekday")
+
         ax.set_title(
-            "Deviation Frequency by Weekday and Hour",
+            "Deviation share by weekday and time of day",
             pad=15
         )
 
-        ax.set_xlabel("Hour bin")
-        ax.set_ylabel("Weekday")
-
-        fig.tight_layout()
+        plt.tight_layout()
 
         return fig
     
     @render.plot
-    def dev_weather_impact_plot():
+    def dev_month_weekday_heatmap_plot():
 
         df = deviation_data()
 
-        dev_df = df[df["is_deviation"] == 1].copy()
+        summary = (
+            df
+            .groupby(["month", "weekday"])
+            .agg(
+                observations=("is_deviation", "size"),
+                deviations=("is_deviation", "sum")
+            )
+            .reset_index()
+        )
+
+        summary["deviation_share"] = (
+            summary["deviations"] / summary["observations"]
+        )
+
+        heatmap_data = summary.pivot(
+            index="month",
+            columns="weekday",
+            values="deviation_share"
+        )
+
+        weekday_order = [
+            "Monday",
+            "Tuesday",
+            "Wednesday",
+            "Thursday",
+            "Friday",
+            "Saturday",
+            "Sunday"
+        ]
+
+        heatmap_data = heatmap_data.reindex(
+            columns=weekday_order
+        )
+
+        fig, ax = plt.subplots(figsize=(10, 5))
+
+        fig.patch.set_facecolor("#f2f2f2")
+        ax.set_facecolor("#f2f2f2")
+
+        im = ax.imshow(
+            heatmap_data,
+            aspect="auto",
+            cmap="YlOrRd"
+        )
+
+        cbar = plt.colorbar(im, ax=ax)
+        cbar.set_label("Deviation share")
+
+        ax.set_xticks(range(len(heatmap_data.columns)))
+        ax.set_xticklabels(heatmap_data.columns)
+
+        ax.set_yticks(range(len(heatmap_data.index)))
+        ax.set_yticklabels(heatmap_data.index)
+
+        ax.set_xticks(
+            np.arange(-0.5, len(heatmap_data.columns), 1),
+            minor=True
+        )
+
+        ax.set_yticks(
+            np.arange(-0.5, len(heatmap_data.index), 1),
+            minor=True
+        )
+
+        ax.grid(
+            which="minor",
+            color="white",
+            linestyle="-",
+            linewidth=1.2
+        )
+
+        ax.tick_params(which="minor", bottom=False, left=False)
+
+        ax.set_xlabel("Weekday")
+        ax.set_ylabel("Month")
+
+        ax.set_title(
+            "Deviation share by month and weekday",
+            pad=15
+        )
+
+        plt.tight_layout()
+
+        return fig
+        
+    @render.plot
+    def dev_weather_impact_plot():
+
+        df = deviation_data().copy()
 
         var = input.dev_weather_var()
 
         if var == "temperature_mean":
 
-            dev_df["plot_var"] = (
-                dev_df["temperature_mean"].round()
+            bins = [-10, 0, 5, 10, 15, 20, 25, 35, 40]
+
+            labels = [
+                "(-10, 0]",
+                "(0, 5]",
+                "(5, 10]",
+                "(10, 15]",
+                "(15, 20]",
+                "(20, 25]",
+                "(25, 35]",
+                "(35, 40]"
+            ]
+
+            df["plot_var"] = pd.cut(
+                df["temperature_mean"],
+                bins=bins,
+                labels=labels
             )
 
-            x_label = "Temperature (°C)"
-            title_prefix = "Temperature"
+            x_label = "Temperature Bin (°C)"
 
         elif var == "wind_speed_mean":
 
-            dev_df["plot_var"] = (
-                dev_df["wind_speed_mean"].round()
+            bins = [0, 5, 10, 15, 20, 30, 50]
+
+            labels = [
+                "(0, 5]",
+                "(5, 10]",
+                "(10, 15]",
+                "(15, 20]",
+                "(20, 30]",
+                "(30, 50]"
+            ]
+
+            df["plot_var"] = pd.cut(
+                df["wind_speed_mean"],
+                bins=bins,
+                labels=labels
             )
 
-            x_label = "Wind Speed"
-            title_prefix = "Wind Speed"
+            x_label = "Wind Speed Bin"
 
         else:
 
-            dev_df["plot_var"] = (
-                dev_df["precipitation_category"]
+            df["plot_var"] = (
+                df["precipitation_category"]
                 .str.replace("_precipitation", "")
                 .str.title()
             )
 
             x_label = "Precipitation"
-            title_prefix = "Precipitation"
 
         summary = (
-            dev_df
+            df
             .groupby("plot_var")
             .agg(
-                observations=("is_deviation", "count"),
-                higher_rate=(
+                observations=("is_deviation", "size"),
+
+                higher_share=(
                     "deviation_direction",
                     lambda x: (
                         x == "Higher than expected"
                     ).mean()
                 ),
-                lower_rate=(
+
+                lower_share=(
                     "deviation_direction",
                     lambda x: (
                         x == "Lower than expected"
@@ -1062,66 +1326,66 @@ def server(input, output, session):
             .reset_index()
         )
 
-        summary["Higher (%)"] = (
-            summary["higher_rate"] * 100
-        )
-
-        summary["Lower (%)"] = (
-            summary["lower_rate"] * 100
-        )
-
-        summary["Total (%)"] = (
-            summary["Higher (%)"] +
-            summary["Lower (%)"]
+        summary["total_share"] = (
+            summary["higher_share"]
+            + summary["lower_share"]
         )
 
         fig, ax1 = plt.subplots(figsize=(12, 6))
 
+        fig.patch.set_facecolor("#f2f2f2")
+        ax1.set_facecolor("#f2f2f2")
+
+        x = np.arange(len(summary))
+
         ax1.bar(
-            summary["plot_var"],
-            summary["Higher (%)"],
-            color="crimson",
-            alpha=0.85,
-            label="Higher than expected"
+            x,
+            summary["higher_share"] * 100,
+            color="#c44e5a",
+            label="Traffic Higher Than Expected"
         )
 
         ax1.bar(
-            summary["plot_var"],
-            summary["Lower (%)"],
-            bottom=summary["Higher (%)"],
-            color="darkorange",
-            alpha=0.85,
-            label="Lower than expected"
+            x,
+            summary["lower_share"] * 100,
+            bottom=summary["higher_share"] * 100,
+            color="#e5a33b",
+            label="Traffic Lower Than Expected"
         )
 
+        for i, total in enumerate(summary["total_share"]):
+
+            ax1.text(
+                i,
+                total * 100 + 0.3,
+                f"{total*100:.1f}%",
+                ha="center",
+                fontsize=9,
+                fontweight="bold"
+            )
+
+        ax1.set_ylabel("Deviation Rate (%)")
         ax1.set_xlabel(x_label)
-        ax1.set_ylabel(
-            "Share of Deviations (%)",
-            fontweight="bold"
-        )
+
+        ax1.set_xticks(x)
+        ax1.set_xticklabels(summary["plot_var"])
 
         ax2 = ax1.twinx()
 
         ax2.plot(
-            summary["plot_var"],
+            x,
             summary["observations"],
-            color="dimgray",
-            linewidth=3,
-            marker="o",
+            color="gray",
             linestyle="--",
-            label="Observations"
+            marker="o",
+            linewidth=2,
+            label="Data Volume (Observations)"
         )
 
-        ax2.set_ylabel(
-            "Detected Deviations",
-            color="dimgray",
-            fontweight="bold"
-        )
+        ax2.set_ylabel("Number of Observations")
 
         ax1.set_title(
-            f"Weather Conditions Associated with Traffic Deviations ({title_prefix})",
-            pad=15,
-            fontweight="bold"
+            "Model Error: Deviation Rate and Direction"
         )
 
         lines1, labels1 = ax1.get_legend_handles_labels()
@@ -1133,191 +1397,100 @@ def server(input, output, session):
             loc="upper left"
         )
 
-        fig.tight_layout()
-
-        return fig
-    @render.plot
-    def dev_top_sites_plot():
-
-        df = deviation_data()
-
-        site_deviation_summary = (
-            df
-            .groupby(["site_id", "site_name", "municipality", "latitude", "longitude"])
-            .agg(
-                observations=("is_deviation", "size"),
-                deviations=("is_deviation", "sum"),
-                higher_deviations=(
-                    "deviation_direction",
-                    lambda x: (x == "Higher than expected").sum()
-                ),
-                lower_deviations=(
-                    "deviation_direction",
-                    lambda x: (x == "Lower than expected").sum()
-                ),
-            )
-            .reset_index()
-        )
-
-        site_deviation_summary["deviation_share"] = (
-            site_deviation_summary["deviations"] /
-            site_deviation_summary["observations"]
-        )
-
-        top_sites = (
-            site_deviation_summary
-            .sort_values("deviation_share", ascending=False)
-            .head(25)
-            .copy()
-        )
-
-        top_sites["site_label"] = (
-            top_sites["site_id"].astype(str)
-            + " - "
-            + top_sites["site_name"].astype(str)
-            + " ("
-            + top_sites["municipality"].astype(str)
-            + ")"
-        )
-
-        top_sites["rank"] = range(1, len(top_sites) + 1)
-
-        top_sites["bar_color"] = np.where(
-            top_sites["rank"] <= 5,
-            "#b2182b",
-            "#bdbdbd"
-        )
-
-        top_sites = top_sites.sort_values("deviation_share", ascending=True)
-
-        fig, ax = plt.subplots(figsize=(11, 9))
-
-        fig.patch.set_facecolor("#f2f2f2")
-        ax.set_facecolor("#f2f2f2")
-
-        ax.barh(
-            top_sites["site_label"],
-            top_sites["deviation_share"],
-            color=top_sites["bar_color"],
-        )
-
-        ax.set_xlabel("Deviation share")
-        ax.set_ylabel("Site")
-        ax.set_title("Top 25 sites by deviation share")
-
-        ax.xaxis.set_major_formatter(plt.FuncFormatter(lambda x, _: f"{x:.0%}"))
-        ax.grid(axis="x", color="white", linewidth=1.2)
-        ax.set_axisbelow(True)
-
         plt.tight_layout()
+
         return fig
     
     @render_widget
     def dev_special_events_plot():
 
-        df = deviation_data()
+        df = deviation_data().copy()
 
-        event_cols = {
-            'is_public_holiday': 'Public Holiday',
-            'is_school_holiday': 'School Holiday',
-            'is_sport_event': 'Sports Event',
-            'is_outdoor_music': 'Outdoor Music',
-            'is_indoor_music': 'Indoor Music',
-            'is_strike': 'Transport Strike'
-        }
-
-        valid_cols = {
-            k: v for k, v in event_cols.items()
-            if k in df.columns
-        }
-
-        results = []
-
-        baseline_mask = (
-            ~df[list(valid_cols.keys())]
-            .any(axis=1)
-        )
-
-        baseline_rate = (
-            df.loc[baseline_mask, "is_deviation"]
-            .mean()
-        )
-
-        total_obs = len(df)
-
-        for col, label in valid_cols.items():
-
-            subset = df[df[col] == 1]
-
-            if len(subset) == 0:
-                continue
-
-            dev_rate = subset["is_deviation"].mean()
-
-            relative_impact = (
-                (dev_rate - baseline_rate)
-                / baseline_rate
-            ) * 100
-
-            pct_dataset = (
-                len(subset) / total_obs
-            ) * 100
-
-            results.append({
-                "Event": label,
-                "Deviation Impact (%)": relative_impact,
-                "Observations": len(subset),
-                "Dataset Share": pct_dataset
-            })
-
-        plot_df = pd.DataFrame(results)
-
-        plot_df = plot_df.sort_values(
-            "Deviation Impact (%)"
-        )
-
-        colors = [
-            "crimson" if x < 0
-            else "lightseagreen"
-            for x in plot_df["Deviation Impact (%)"]
+        event_factors = [
+            "is_strike",
+            "is_outdoor_music",
+            "is_indoor_music",
+            "is_sport_event",
         ]
 
-        fig = go.Figure()
+        event_factor_labels = {
+            "is_strike": "Transport strike",
+            "is_outdoor_music": "Outdoor music event",
+            "is_indoor_music": "Indoor music event",
+            "is_sport_event": "Sport event",
+        }
 
-        fig.add_trace(go.Bar(
-            x=plot_df["Deviation Impact (%)"],
-            y=plot_df["Event"],
-            orientation="h",
-            marker_color=colors,
-            customdata=plot_df[
-                ["Observations", "Dataset Share"]
+        summary_list = []
+
+        for factor in event_factors:
+
+            non_event_data = df[df[factor] == 0]
+            event_data = df[df[factor] == 1]
+
+            summary_list.append({
+                "factor": factor,
+                "factor_label": event_factor_labels[factor],
+                "non_event_deviation_share": non_event_data["is_deviation"].mean(),
+                "event_deviation_share": event_data["is_deviation"].mean(),
+            })
+
+        event_deviation_summary = pd.DataFrame(summary_list)
+
+        event_share_plot_data = event_deviation_summary.melt(
+            id_vars=["factor_label"],
+            value_vars=[
+                "non_event_deviation_share",
+                "event_deviation_share",
             ],
-            hovertemplate=(
-                "<b>%{y}</b><br>" +
-                "Relative impact: %{x:.2f}%<br>" +
-                "Observations: %{customdata[0]}<br>" +
-                "Dataset share: %{customdata[1]:.2f}%<extra></extra>"
-            )
-        ))
+            var_name="period",
+            value_name="deviation_share",
+        )
 
-        fig.add_vline(
-            x=0,
-            line_dash="dash",
-            line_color="black"
+        event_share_plot_data["period"] = event_share_plot_data["period"].map({
+            "non_event_deviation_share": "Non-event period",
+            "event_deviation_share": "Event period",
+        })
+
+        period_colors = {
+            "Non-event period": "#999999",
+            "Event period": "#b2182b",
+        }
+
+        fig = px.bar(
+            event_share_plot_data,
+            x="factor_label",
+            y="deviation_share",
+            color="period",
+            color_discrete_map=period_colors,
+            barmode="group",
+            title="Deviation share during event and non-event periods",
+            labels={
+                "factor_label": "Event factor",
+                "deviation_share": "Share of observations classified as deviations",
+                "period": "Period",
+            },
         )
 
         fig.update_layout(
-            title="Impact of Special Events on Traffic Deviations",
-            template="plotly_white",
-            height=500,
-            margin=dict(
-                l=40,
-                r=40,
-                t=70,
-                b=40
-            ),
-            xaxis_title="Relative Change in Deviation Rate (%)",
-            yaxis_title=""
+            plot_bgcolor="#f2f2f2",
+            paper_bgcolor="#f2f2f2",
+            font=dict(color="#333333", size=13),
+            title=dict(x=0.02, font=dict(size=21)),
+            legend_title_text="Period",
+            yaxis_tickformat=".1%",
+            bargap=0.25,
+            bargroupgap=0.08,
+        )
+
+        fig.update_yaxes(
+            gridcolor="white",
+            zerolinecolor="white",
+            title="Deviation share"
+        )
+
+        fig.update_xaxes(
+            showgrid=False,
+            title="Event factor"
         )
 
         return fig
@@ -1328,7 +1501,8 @@ def server(input, output, session):
         df = deviation_data()
 
         site_map = (
-            df.groupby(
+            df
+            .groupby(
                 [
                     "site_id",
                     "site_name",
@@ -1339,8 +1513,8 @@ def server(input, output, session):
                 dropna=False
             )
             .agg(
-                total_observations=("is_deviation", "count"),
-                total_deviations=("is_deviation", "sum"),
+                observations=("is_deviation", "size"),
+                deviations=("is_deviation", "sum"),
                 higher_deviations=(
                     "deviation_direction",
                     lambda x: (x == "Higher than expected").sum()
@@ -1358,60 +1532,163 @@ def server(input, output, session):
         )
 
         site_map["deviation_share"] = (
-            site_map["total_deviations"] /
-            site_map["total_observations"] * 100
+            site_map["deviations"] / site_map["observations"]
         )
 
         site_map["higher_share"] = (
-            site_map["higher_deviations"] /
-            site_map["total_observations"] * 100
+            site_map["higher_deviations"] / site_map["observations"]
         )
 
         site_map["lower_share"] = (
-            site_map["lower_deviations"] /
-            site_map["total_observations"] * 100
+            site_map["lower_deviations"] / site_map["observations"]
         )
 
         metric = input.dev_map_metric()
 
-        metric_labels = {
-            "deviation_share": "Total deviation share (%)",
-            "higher_share": "Higher than expected share (%)",
-            "lower_share": "Lower than expected share (%)"
+        metric_settings = {
+            "deviation_share": {
+                "color": "deviation_share",
+                "size": "deviations",
+                "title": "Total deviation share by counting site",
+                "legend": "Deviation share"
+            },
+            "higher_share": {
+                "color": "higher_share",
+                "size": "higher_deviations",
+                "title": "Higher-than-expected deviation share by counting site",
+                "legend": "Higher share"
+            },
+            "lower_share": {
+                "color": "lower_share",
+                "size": "lower_deviations",
+                "title": "Lower-than-expected deviation share by counting site",
+                "legend": "Lower share"
+            }
         }
+
+        selected = metric_settings[metric]
+
+        site_map["site_label"] = (
+            site_map["site_id"].astype(str)
+            + " - "
+            + site_map["site_name"].astype(str).str.replace("_", " ", regex=False).str.title()
+            + " ("
+            + site_map["municipality"].astype(str).str.title()
+            + ")"
+        )
+
+        site_map["deviation_share_label"] = (
+            (site_map["deviation_share"] * 100).round(1).astype(str) + "%"
+        )
+
+        site_map["higher_share_label"] = (
+            (site_map["higher_share"] * 100).round(1).astype(str) + "%"
+        )
+
+        site_map["lower_share_label"] = (
+            (site_map["lower_share"] * 100).round(1).astype(str) + "%"
+        )
 
         fig = px.scatter_mapbox(
             site_map,
             lat="latitude",
             lon="longitude",
-            color=metric,
-            size="total_deviations",
-            hover_name="site_name",
-            hover_data={
-                "municipality": True,
-                "total_observations": True,
-                "total_deviations": True,
-                "higher_deviations": True,
-                "lower_deviations": True,
-                "latitude": False,
-                "longitude": False,
-                metric: ":.2f"
-            },
-            color_continuous_scale="Reds",
+            color=selected["color"],
+            size=selected["size"],
+            color_continuous_scale="YlOrRd",
+            size_max=24,
             zoom=7,
             height=700,
-            title=metric_labels[metric]
+            hover_name="site_label",
+            custom_data=[
+                "observations",
+                "deviations",
+                "higher_deviations",
+                "lower_deviations",
+                "deviation_share_label",
+                "higher_share_label",
+                "lower_share_label",
+            ],
+            title=selected["title"]
+        )
+
+        fig.update_traces(
+            hovertemplate=
+            "<b>%{hovertext}</b><br><br>"
+            + "Observations: %{customdata[0]:,}<br>"
+            + "Detected deviations: %{customdata[1]:,}<br>"
+            + "Higher-than-expected deviations: %{customdata[2]:,}<br>"
+            + "Lower-than-expected deviations: %{customdata[3]:,}<br>"
+            + "Deviation share: %{customdata[4]}<br>"
+            + "Higher-than-expected share: %{customdata[5]}<br>"
+            + "Lower-than-expected share: %{customdata[6]}"
+            + "<extra></extra>"
         )
 
         fig.update_layout(
-            mapbox_style="open-street-map",
-            template="plotly_white",
-            margin=dict(l=20, r=20, t=70, b=20),
+            mapbox_style="carto-positron",
+            paper_bgcolor="#f2f2f2",
+            plot_bgcolor="#f2f2f2",
+            font=dict(color="#333333"),
+            title=dict(x=0.02),
+            margin={"r": 0, "t": 55, "l": 0, "b": 0},
             coloraxis_colorbar=dict(
-                    title="Deviation Share (%)"),
+                title=selected["legend"]
+            )
+        )
+        return fig
+    
+    @render.plot
+    def dev_top_sites_plot():
+
+        df = deviation_data().copy()
+
+        site_summary = (
+            df.groupby(["site_id", "site_name", "municipality"])
+            .agg(
+                observations=("is_deviation", "size"),
+                deviations=("is_deviation", "sum")
+            )
+            .reset_index()
         )
 
+        site_summary["deviation_share"] = (
+            site_summary["deviations"] / site_summary["observations"]
+        )
+
+        site_summary["site_label"] = (
+            site_summary["site_name"].astype(str)
+            .str.replace("_", " ", regex=False)
+            .str.title()
+            + " ("
+            + site_summary["municipality"].astype(str).str.title()
+            + ")"
+        )
+
+        top_sites = (
+            site_summary
+            .sort_values("deviations", ascending=False)
+            .head(25)
+            .sort_values("deviations")
+        )
+
+        fig, ax = plt.subplots(figsize=(10, 8))
+
+        ax.barh(
+            top_sites["site_label"],
+            top_sites["deviations"],
+            color="firebrick",
+            alpha=0.90
+        )
+
+        ax.set_xlabel("Number of detected deviations")
+        ax.set_ylabel("")
+        ax.set_title("Top 25 counting sites by number of deviations")
+
+        plt.tight_layout()
+
         return fig
+    
     @reactive.Calc
     def site_characterisation_data():
         df = deviation_data().copy()
@@ -1633,38 +1910,62 @@ def server(input, output, session):
     
     @render_widget
     def dev_direction_profile_map():
-        site_map = site_characterisation_data().dropna(subset=["latitude", "longitude"])
+        site_map = site_characterisation_data().dropna(subset=["latitude", "longitude"]).copy()
 
-        direction_colors = {
-            "Low deviation frequency": "#9e9e9e",
-            "Mostly higher counts than expected": "#b2182b",
-            "Mostly lower counts than expected": "#fdae61",
-            "Mixed direction of deviations": "#7b3294",
-        }
+        if input.map_view() == "direction_profile":
+            color_col = "direction_profile"
+            legend_title = "Direction profile"
+            map_title = "Direction profile of deviations by counting site"
+
+        elif input.map_view() == "site_category":
+            color_col = "site_category"
+            legend_title = "Site category"
+            map_title = "Site category by counting site"
+
+        else:
+            color_col = "main_sensitivity_factor"
+            legend_title = "Main sensitivity factor"
+            map_title = "Main sensitivity factor by counting site"
+
+        site_map["category_label"] = site_map[color_col].astype(str)
+
+        site_map["deviation_share_label"] = (
+            (site_map["deviation_share"] * 100).round(1).astype(str) + "%"
+        )
+        site_map["higher_share_label"] = (
+            (site_map["higher_deviation_share"] * 100).round(1).astype(str) + "%"
+        )
+        site_map["lower_share_label"] = (
+            (site_map["lower_deviation_share"] * 100).round(1).astype(str) + "%"
+        )
 
         fig = px.scatter_mapbox(
             site_map,
             lat="latitude",
             lon="longitude",
-            color="direction_profile",
+            color=color_col,
             size="deviation_share_for_size",
-            color_discrete_map=direction_colors,
             size_max=24,
             zoom=7,
             height=700,
-            hover_name="site_label",
-            hover_data={
-                "site_id": True,
-                "municipality": True,
-                "deviation_share": ":.1%",
-                "higher_deviation_share": ":.1%",
-                "lower_deviation_share": ":.1%",
-                "direction_profile": True,
-                "deviation_share_for_size": False,
-                "latitude": False,
-                "longitude": False,
-            },
-            title="Direction profile of deviations by counting site",
+            title=map_title,
+            custom_data=[
+                "category_label",
+                "site_label",
+                "deviation_share_label",
+                "higher_share_label",
+                "lower_share_label",
+            ],
+        )
+
+        fig.update_traces(
+            hovertemplate=
+            "<b>%{customdata[0]}</b><br><br>"
+            + "Location: %{customdata[1]}<br>"
+            + "Deviation share: %{customdata[2]}<br>"
+            + "Higher share: %{customdata[3]}<br>"
+            + "Lower share: %{customdata[4]}"
+            + "<extra></extra>"
         )
 
         fig.update_layout(
@@ -1673,90 +1974,9 @@ def server(input, output, session):
             plot_bgcolor="#f2f2f2",
             font=dict(color="#333333"),
             title=dict(x=0.02),
-            legend_title_text="Direction profile",
+            legend_title_text=legend_title,
             margin={"r": 0, "t": 55, "l": 0, "b": 0},
         )
-
-        return fig
-    
-    @render_widget
-    def dev_sensitivity_map():
-        site_map = site_characterisation_data().dropna(subset=["latitude", "longitude"])
-
-        site_map["sensitivity_map_group"] = site_map["site_category"]
-
-        site_map.loc[
-            site_map["site_category"] == "Single-factor-sensitive",
-            "sensitivity_map_group"
-        ] = site_map["main_sensitivity_factor"]
-
-        site_map.loc[
-            site_map["site_category"] == "Multiple-factor-sensitive",
-            "sensitivity_map_group"
-        ] = "Multiple factors"
-
-        sensitivity_colors = {
-            "Stable": "#9e9e9e",
-            "Unstable independent of factors": "#b2182b",
-            "Warm weather": "#ef8a62",
-            "Cold weather": "#67a9cf",
-            "Precipitation": "#9ab5d0",
-            "Transport strike": "#fdae61",
-            "Cultural event": "#2166ac",
-            "Sport event": "#d36c95",
-            "Multiple factors": "#6a3d9a",
-        }
-
-        sensitivity_order = [
-            "Stable",
-            "Unstable independent of factors",
-            "Precipitation",
-            "Cold weather",
-            "Warm weather",
-            "Transport strike",
-            "Cultural event",
-            "Sport event",
-            "Multiple factors",
-        ]
-
-        fig = px.scatter_mapbox(
-            site_map,
-            lat="latitude",
-            lon="longitude",
-            color="sensitivity_map_group",
-            size="deviation_share_for_size",
-            color_discrete_map=sensitivity_colors,
-            category_orders={"sensitivity_map_group": sensitivity_order},
-            size_max=24,
-            zoom=7,
-            height=700,
-            hover_name="site_label",
-            hover_data={
-                "site_id": True,
-                "municipality": True,
-                "deviation_share": ":.1%",
-                "normal_deviation_share": ":.1%",
-                "site_category": True,
-                "main_sensitivity_factor": True,
-                "sensitive_factors": True,
-                "direction_profile": True,
-                "deviation_share_for_size": False,
-                "latitude": False,
-                "longitude": False,
-            },
-            title="Site sensitivity to external factors",
-        )
-
-        fig.update_layout(
-            mapbox_style="carto-positron",
-            paper_bgcolor="#f2f2f2",
-            plot_bgcolor="#f2f2f2",
-            font=dict(color="#333333"),
-            title=dict(x=0.02),
-            legend_title_text="Sensitivity type",
-            margin={"r": 0, "t": 55, "l": 0, "b": 0},
-        )
-
         return fig
 
 # 3. CREATE APP
