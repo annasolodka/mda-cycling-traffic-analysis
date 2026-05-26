@@ -41,7 +41,6 @@ These technologies support data cleaning, feature construction, exploratory data
 ## Project Structure
 
 ```text
-app/        -> dashboard application
 data/       -> raw, external, and processed datasets
 outputs/    -> figures, tables, and diagnostic results
 notebooks/  -> end-to-end analytical workflow
