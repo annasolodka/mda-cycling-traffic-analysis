@@ -15,3 +15,4 @@ scipy
 patsy
 shiny
 shinywidgets
+seaborn
